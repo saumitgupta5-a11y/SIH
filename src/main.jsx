@@ -33,11 +33,6 @@ async function api(url, options = {}) {
   return payload;
 }
 
-function shortHash(value) {
-  if (!value) return "—";
-  return `${value.slice(0, 10)}…${value.slice(-8)}`;
-}
-
 function formatDate(value) {
   return value ? new Date(value).toLocaleString([], { dateStyle: "medium", timeStyle: "short" }) : "—";
 }
@@ -263,6 +258,10 @@ function App() {
   }, [documents, query, caseFilter]);
 
   const metadata = selected?.files?.find((file) => file.version === selected?.versions?.length);
+  const participantName = (address) => {
+    const participant = config?.actors.find((item) => item.address.toLowerCase() === address?.toLowerCase());
+    return participant?.label || "Authorized participant";
+  };
   const isCurrentCustodian = Boolean(
     selected && activeActor && selected.currentCustodian?.toLowerCase() === activeActor.address?.toLowerCase()
   );
@@ -281,7 +280,7 @@ function App() {
     {busy && <div className="busy-bar" aria-hidden="true" />}
     <header className="topbar">
       <div className="brand"><div className="brand-mark">N</div><div><strong>NyayaVault</strong><span>Secure legal document workspace</span></div></div>
-      <div className="network"><span className="network-dot" /> Local blockchain <code>{config ? shortHash(config.contractAddress) : "Connecting…"}</code></div>
+      <div className="network"><span className="network-dot" /> Local blockchain <span>{config ? "Secure connection" : "Connecting…"}</span></div>
       <div className="session-chip">
         <span>Signed in</span>
         <strong>{session.label}</strong>
@@ -293,7 +292,7 @@ function App() {
       <div>
         <p className="eyebrow">SECURE DIGITAL DOCUMENT MANAGEMENT</p>
         <h1>Centralised records with a<br /><em>verifiable history.</em></h1>
-        <p className="hero-copy">Digitise FIRs, witness statements, forensic reports, charge sheets, and court orders. Files stay off-chain; SHA-256 hashes, versions, custody, access grants, and judicial seals are anchored on EvidenceRegistry.</p>
+        <p className="hero-copy">Digitise FIRs, witness statements, forensic reports, charge sheets, and court orders. Files stay off-chain while their integrity, versions, custody, access grants, and judicial seals are securely recorded.</p>
       </div>
       <div className="hero-trust"><span>CHAIN OF CUSTODY</span><strong>Authenticated<br />audit trail</strong><div><Pill tone="green">Session</Pill><Pill>SHA-256</Pill><Pill tone="blue">RBAC</Pill></div></div>
     </section>
@@ -304,7 +303,7 @@ function App() {
       <article><span>ACTIVE CASES</span><strong>{cases.filter((item) => item.status === "OPEN" || item.status === "UNDER_TRIAL").length}</strong><small>{cases.length} indexed locally</small></article>
       <article><span>ACCESSIBLE DOCUMENTS</span><strong>{documents.length}</strong><small>{activeActor?.label || "Participant"} view</small></article>
       <article><span>AUDIT EVENTS</span><strong>{activity.length}</strong><small>Latest 60 actions</small></article>
-      <article className="actor-card"><span>AUTHENTICATED ROLE</span><strong>{activeActor?.role || "—"}</strong><small>{shortHash(activeActor?.address)}</small></article>
+      <article className="actor-card"><span>AUTHENTICATED ROLE</span><strong>{activeActor?.role || "—"}</strong><small>Verified signed-in identity</small></article>
     </section>
 
     <section className="workspace">
@@ -330,20 +329,20 @@ function App() {
       <section className="documents-panel">
         <div className="section-heading"><div><p className="eyebrow">REGISTRY</p><h2>Document ledger</h2></div><span className="muted">Hashes only are stored on-chain</span></div>
         <div className="ledger-tools">
-          <input placeholder="Search title, FIR no., or hash" value={query} onChange={(event) => setQuery(event.target.value)} />
+          <input placeholder="Search title, case number, or document reference" value={query} onChange={(event) => setQuery(event.target.value)} />
           <select value={caseFilter} onChange={(event) => setCaseFilter(event.target.value)}>
             <option value="">All cases</option>
             {cases.map((item) => <option key={item.caseId} value={item.caseId}>{item.reference}</option>)}
           </select>
         </div>
         {filteredDocuments.length ? <div className="document-list">{filteredDocuments.map((item) => <button key={item.documentId} onClick={() => setSelectedId(item.documentId)} className={`document-row ${selectedId === item.documentId ? "selected" : ""}`}>
-          <div className="doc-icon">{item.title.slice(0, 1).toUpperCase()}</div><div className="doc-main"><strong>{item.title}</strong><span>{item.caseReference} · {item.documentReference}</span></div><Pill tone="blue">{item.createdBy === actor ? "CREATED" : "GRANTED"}</Pill><span className="hash">{shortHash(item.documentId)}</span><span className="chevron">›</span>
+          <div className="doc-icon">{item.title.slice(0, 1).toUpperCase()}</div><div className="doc-main"><strong>{item.title}</strong><span>{item.caseReference} · {item.documentReference}</span></div><Pill tone="blue">{item.createdBy === actor ? "CREATED" : "GRANTED"}</Pill><span className="hash">Integrity recorded</span><span className="chevron">›</span>
         </button>)}</div> : <div className="empty"><div>⌁</div><strong>No matching documents</strong><p>Open a case, then register its first record, or clear the search filters.</p></div>}
       </section>
     </section>
 
     <section className="intake-section">
-      <div><p className="eyebrow">DOCUMENT INTAKE</p><h2>Register an evidence file</h2><p>SHA-256 and a metadata pointer become version 1 on-chain. The file itself stays in local <code>uploads/</code> for this prototype.</p></div>
+      <div><p className="eyebrow">DOCUMENT INTAKE</p><h2>Register an evidence file</h2><p>An integrity record and file details become version 1 on the blockchain. The file itself stays securely in this local prototype.</p></div>
       <form className="intake-form" onSubmit={(event) => { event.preventDefault(); run(async () => {
         const body = new FormData();
         Object.entries(documentForm).forEach(([key, value]) => { if (value !== null) body.append(key, value); });
@@ -364,23 +363,23 @@ function App() {
     <section className="detail-section">
       <div className="section-heading"><div><p className="eyebrow">DOCUMENT WORKBENCH</p><h2>{selected?.title || "Select a document"}</h2></div>{selected && <div className="detail-badges"><Pill tone={selected.sealed ? "red" : "green"}>{selected.sealed ? "SEALED / IMMUTABLE" : selected.caseStatus}</Pill><Pill tone="blue">{selected.docType.replaceAll("_", " ")}</Pill></div>}</div>
       {!selected ? <div className="empty detail-empty"><div>▣</div><strong>Choose a document from the ledger</strong><p>Blockchain state, audit history, and permitted actions appear here.</p></div> : <>
-        <div className="integrity-strip"><div><span>DOCUMENT ID</span><code>{selected.documentId}</code></div><div><span>CURRENT CUSTODIAN</span><code>{selected.currentCustodian}</code></div><div><span>LATEST HASH · V{selected.versions.length}</span><code>{shortHash(selected.versions.at(-1)?.hash)}</code></div><button type="button" className="download" onClick={() => downloadDocument(selected.documentId)}>Download latest ↗</button></div>
+        <div className="integrity-strip"><div><span>CASE REFERENCE</span><strong>{selected.caseReference}</strong></div><div><span>DOCUMENT REFERENCE</span><strong>{selected.documentReference}</strong></div><div><span>CURRENT CUSTODIAN</span><strong>{participantName(selected.currentCustodian)}</strong></div><div><span>INTEGRITY STATUS</span><strong>Recorded · Version {selected.versions.length}</strong></div><button type="button" className="download" onClick={() => downloadDocument(selected.documentId)}>Download latest ↗</button></div>
         <div className="detail-grid">
-          <article className="timeline-card"><h3>Version history</h3>{selected.versions.map((version) => <div className="timeline" key={version.version}><span className="timeline-dot" /><div><strong>Version {version.version}</strong><p><code>{shortHash(version.hash)}</code></p><small>{formatDate(version.timestamp)} by {shortHash(version.createdBy)}</small></div><button type="button" className="text-button" onClick={() => downloadDocument(selected.documentId, version.version)}>file ↗</button></div>)}</article>
-          <article className="timeline-card"><h3>Chain of custody</h3>{selected.custody.length ? selected.custody.map((event, index) => <div className="timeline" key={`${event.timestamp}-${index}`}><span className="timeline-dot amber" /><div><strong>{event.action}</strong><p><code>{shortHash(event.from)} → {shortHash(event.to)}</code></p><small>{formatDate(event.timestamp)}</small></div></div>) : <p className="quiet">No transfers recorded. The registering officer remains the custodian.</p>}</article>
-          <article className="timeline-card"><h3>Local file record</h3><p className="quiet">{metadata?.originalName || "No local file metadata"}</p><p className="quiet">Stored locally only; the contract retains its hash and <code>local://</code> metadata pointer.</p></article>
+          <article className="timeline-card"><h3>Version history</h3>{selected.versions.map((version) => <div className="timeline" key={version.version}><span className="timeline-dot" /><div><strong>Version {version.version}</strong><p>Integrity record secured on blockchain</p><small>{formatDate(version.timestamp)} by {participantName(version.createdBy)}</small></div><button type="button" className="text-button" onClick={() => downloadDocument(selected.documentId, version.version)}>file ↗</button></div>)}</article>
+          <article className="timeline-card"><h3>Chain of custody</h3>{selected.custody.length ? selected.custody.map((event, index) => <div className="timeline" key={`${event.timestamp}-${index}`}><span className="timeline-dot amber" /><div><strong>{event.action}</strong><p>{participantName(event.from)} → {participantName(event.to)}</p><small>{formatDate(event.timestamp)}</small></div></div>) : <p className="quiet">No transfers recorded. The registering officer remains the custodian.</p>}</article>
+          <article className="timeline-card"><h3>Local file record</h3><p className="quiet">{metadata?.originalName || "No local file metadata"}</p><p className="quiet">Stored locally; its integrity record is protected on the blockchain.</p></article>
         </div>
         <div className="actions-grid">
           <form className="action-card" onSubmit={(event) => { event.preventDefault(); if (!canModifyDocument) return; run(async () => { const body = new FormData(); body.append("file", versionFile); await api(`/api/documents/${selected.documentId}/versions`, { method: "POST", body }); setVersionFile(null); if (versionFileRef.current) versionFileRef.current.value = ""; }, "New document version anchored on-chain."); }}><h3>Add version</h3><p>Only the current custodian can replace a mutable document.</p><input ref={versionFileRef} required disabled={!canModifyDocument} type="file" onChange={(event) => setVersionFile(event.target.files?.[0] || null)} /><button className="secondary" disabled={busy || !canModifyDocument}>{isCurrentCustodian ? "Create next version" : "Custodian only"}</button></form>
           <form className="action-card" onSubmit={(event) => { event.preventDefault(); if (!canModifyDocument) return; run(async () => api(`/api/documents/${selected.documentId}/custody`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(transfer) }), "Custody transfer recorded on-chain."); }}><h3>Transfer custody</h3><p>Current custodian signs the handoff and reason.</p><select disabled={!canModifyDocument} value={transfer.toActor} onChange={(event) => setTransfer({ ...transfer, toActor: event.target.value })}>{config?.actors.filter((item) => item.key !== actor).map((item) => <option key={item.key} value={item.key}>{item.label}</option>)}</select><input required disabled={!canModifyDocument} value={transfer.action} onChange={(event) => setTransfer({ ...transfer, action: event.target.value })} /><button className="secondary" disabled={busy || !canModifyDocument}>{isCurrentCustodian ? "Record transfer" : "Custodian only"}</button></form>
           <form className="action-card" onSubmit={(event) => { event.preventDefault(); if (!canManageAccess) return; run(async () => api(`/api/documents/${selected.documentId}/access`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ granteeActor: access, grant: true }) }), "Access permission updated on-chain."); }}><h3>Grant read access</h3><p>Custodian, court, or administrator can permit another participant.</p><select disabled={!canManageAccess} value={access} onChange={(event) => setAccess(event.target.value)}>{config?.actors.filter((item) => item.key !== actor).map((item) => <option key={item.key} value={item.key}>{item.label}</option>)}</select><button className="secondary" disabled={busy || !canManageAccess}>{canManageAccess ? "Grant access" : "No grant authority"}</button><button type="button" className="text-button" disabled={busy || !canManageAccess || accessTargetIsCustodian} onClick={() => run(async () => api(`/api/documents/${selected.documentId}/access`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ granteeActor: access, grant: false }) }), "Access revoked on-chain.")}>{accessTargetIsCustodian ? "Custodian access cannot be revoked" : "Revoke selected access"}</button></form>
-          <form className="action-card verify-card" onSubmit={(event) => { event.preventDefault(); run(async () => { const body = new FormData(); body.append("file", verify.file); body.append("version", verify.version); const result = await api(`/api/documents/${selected.documentId}/verify`, { method: "POST", body }); setVerify({ ...verify, result }); return result; }, (result) => result?.verified ? "Hash matches the on-chain record." : "Hash does not match this version."); }}><h3>Verify integrity</h3><p>Hash a local file and compare it with a registered version.</p><select value={verify.version} onChange={(event) => setVerify({ ...verify, version: event.target.value, result: null })}>{selected.versions.map((item) => <option key={item.version} value={item.version}>Version {item.version}</option>)}</select><input ref={verifyFileRef} required type="file" onChange={(event) => setVerify({ ...verify, file: event.target.files?.[0] || null, result: null })} /><button className="primary" disabled={busy}>Verify file</button>{verify.result && <div className={`verify-result ${verify.result.verified ? "match" : "mismatch"}`}>{verify.result.verified ? "✓ Hash matches the on-chain record" : "× Hash does not match this version"}</div>}</form>
+          <form className="action-card verify-card" onSubmit={(event) => { event.preventDefault(); run(async () => { const body = new FormData(); body.append("file", verify.file); body.append("version", verify.version); const result = await api(`/api/documents/${selected.documentId}/verify`, { method: "POST", body }); setVerify({ ...verify, result }); return result; }, (result) => result?.verified ? "File matches the protected record." : "File does not match this version."); }}><h3>Verify integrity</h3><p>Compare a local file with the protected record for this version.</p><select value={verify.version} onChange={(event) => setVerify({ ...verify, version: event.target.value, result: null })}>{selected.versions.map((item) => <option key={item.version} value={item.version}>Version {item.version}</option>)}</select><input ref={verifyFileRef} required type="file" onChange={(event) => setVerify({ ...verify, file: event.target.files?.[0] || null, result: null })} /><button className="primary" disabled={busy}>Verify file</button>{verify.result && <div className={`verify-result ${verify.result.verified ? "match" : "mismatch"}`}>{verify.result.verified ? "✓ File matches the protected record" : "× File does not match this version"}</div>}</form>
           <div className="action-card seal-card"><h3>Judicial seal</h3><p>Only the court role can permanently freeze versions and custody transfers.</p><button className="danger" disabled={busy || selected.sealed || !caps.seal} onClick={() => run(async () => api(`/api/documents/${selected.documentId}/seal`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({}) }), "Document sealed permanently on-chain.")}>{selected.sealed ? "Already sealed" : caps.seal ? "Seal document permanently" : "Sign in as Court Clerk"}</button><small>Sign out and authenticate as Court Clerk to perform this action.</small></div>
         </div>
       </>}
     </section>
 
-    <section className="activity-section"><div className="section-heading"><div><p className="eyebrow">AUDIT LOG</p><h2>Recent recorded activity</h2></div></div>{activity.length ? <div className="audit-list">{activity.slice(0, 8).map((item) => <div className="audit-row" key={item.id}><span className="audit-icon">{item.type.includes("SEALED") ? "◆" : item.type.includes("ACCESS") ? "⌘" : "↗"}</span><div><strong>{item.description}</strong><small>{item.actor} · {formatDate(item.at)}</small></div><code>{shortHash(item.transactionHash)}</code></div>)}</div> : <p className="quiet">Authenticated actions recorded through this local MVP appear here.</p>}</section>
+    <section className="activity-section"><div className="section-heading"><div><p className="eyebrow">AUDIT LOG</p><h2>Recent recorded activity</h2></div></div>{activity.length ? <div className="audit-list">{activity.slice(0, 8).map((item) => <div className="audit-row" key={item.id}><span className="audit-icon">{item.type.includes("SEALED") ? "◆" : item.type.includes("ACCESS") ? "⌘" : "↗"}</span><div><strong>{item.description}</strong><small>{item.actor} · {formatDate(item.at)}</small></div><span className="audit-status">On-chain record</span></div>)}</div> : <p className="quiet">Authenticated actions recorded through this local MVP appear here.</p>}</section>
     <footer>NyayaVault prototype · Local demo with session authentication · Do not use embedded keys for production evidence.</footer>
   </main>;
 }
