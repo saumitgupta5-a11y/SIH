@@ -352,7 +352,7 @@ function App() {
         if (intakeFileRef.current) intakeFileRef.current.value = "";
         setSelectedId(created.documentId);
       }, "Document registered. Integrity is now anchored on-chain."); }}>
-        <label>Case<select required value={documentForm.caseReference} onChange={(event) => setDocumentForm({ ...documentForm, caseReference: event.target.value })}><option value="">Choose an open case</option>{cases.filter((item) => item.status === "OPEN").map((item) => <option key={item.caseId} value={item.reference}>{item.reference} — {item.title}</option>)}</select></label>
+        <label>Case<select required value={documentForm.caseReference} onChange={(event) => setDocumentForm({ ...documentForm, caseReference: event.target.value })}><option value="">Choose an active case</option>{cases.filter((item) => item.status === "OPEN" || item.status === "UNDER_TRIAL").map((item) => <option key={item.caseId} value={item.reference}>{item.reference} — {item.title} · {item.status.replaceAll("_", " ")}</option>)}</select></label>
         <label>Document reference<input required placeholder="EVD-001" value={documentForm.documentReference} onChange={(event) => setDocumentForm({ ...documentForm, documentReference: event.target.value })} /></label>
         <label>Document title<input required placeholder="Initial incident report" value={documentForm.title} onChange={(event) => setDocumentForm({ ...documentForm, title: event.target.value })} /></label>
         <label>Document type<select value={documentForm.docType} onChange={(event) => setDocumentForm({ ...documentForm, docType: event.target.value })}>{config?.documentTypes.map((item, index) => <option key={item} value={index}>{typeLabels[item]}</option>)}</select></label>

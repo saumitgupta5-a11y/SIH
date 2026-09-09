@@ -60,7 +60,10 @@ contract EvidenceRegistry is AccessControl, Pausable {
     function registerDocument(bytes32 documentId, bytes32 caseId, DocType docType, bytes32 documentHash, string calldata metadataURI) external whenNotPaused onlyRole(OFFICER_ROLE) {
         require(!documents[documentId].exists, "Document already exists");
         require(caseExists[caseId], "Case does not exist");
-        require(caseStatus[caseId] == CaseStatus.OPEN, "Case is not open");
+        require(
+            caseStatus[caseId] == CaseStatus.OPEN || caseStatus[caseId] == CaseStatus.UNDER_TRIAL,
+            "Case does not allow document registration"
+        );
         require(documentId != bytes32(0), "Invalid document ID");
         require(caseId != bytes32(0), "Invalid case ID");
         require(documentHash != bytes32(0), "Invalid document hash");

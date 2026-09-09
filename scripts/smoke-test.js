@@ -72,6 +72,35 @@ try {
   form.append("docType", "0");
   form.append("file", new Blob(["unaltered evidence file"], { type: "text/plain" }), "evidence.txt");
   const document = await request("/api/documents", { method: "POST", body: form });
+  await request("/api/logout", { method: "POST" });
+  cookie = "";
+  await request("/api/login", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ username: "admin", password: "Nyaya@Admin" })
+  });
+  await request(`/api/cases/${caseCreated.caseId}/status`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ status: 1 })
+  });
+  await request("/api/logout", { method: "POST" });
+  cookie = "";
+  await request("/api/login", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ username: "officer", password: "Nyaya@Officer" })
+  });
+  const forensicForm = new FormData();
+  forensicForm.append("caseReference", `SMOKE-${suffix}`);
+  forensicForm.append("documentReference", "FSL-001");
+  forensicForm.append("title", "Smoke test forensic report");
+  forensicForm.append("docType", "3");
+  forensicForm.append("file", new Blob(["forensic report evidence file"], { type: "text/plain" }), "forensic-report.txt");
+  const forensicDocument = await request("/api/documents", { method: "POST", body: forensicForm });
+  if (forensicDocument.caseId !== document.caseId || forensicDocument.documentId === document.documentId) {
+    throw new Error("A case should accept a separate forensic document alongside its FIR");
+  }
   const transfer = await request(`/api/documents/${document.documentId}/custody`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
