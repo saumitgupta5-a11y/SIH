@@ -9,6 +9,7 @@ import multer from "multer";
 import { ethers } from "ethers";
 import { authenticate, createSession, destroySession, getSession, publicDemoLogins, requireAuth } from "./auth.js";
 import { asNumber, caseStatuses, documentTypes, getChain, sha256, sha256File, toHexId } from "./chain.js";
+import { buildAuthorizedAiContext, buildRoleDashboard, buildAuthorityContext, cleanAiQuestion, documentActions, generateHostedAnswer, localAssistantAnswer, ROLE_PERMISSION_MATRIX } from "./ai.js";
 
 dotenv.config();
 const app = express();
@@ -21,15 +22,35 @@ const storePath = path.join(dataDir, "registry.json");
 let memoryStore = null;
 let writeQueue = Promise.resolve();
 
-const allowedOrigins = (process.env.CLIENT_ORIGIN || "http://127.0.0.1:5173")
+const configuredOrigins = (process.env.CLIENT_ORIGIN || "")
   .split(",")
   .map((origin) => origin.trim())
   .filter(Boolean);
 
+function isAllowedLocalViteOrigin(origin) {
+  try {
+    const url = new URL(origin);
+    const port = Number(url.port);
+    // Vite increments from its configured port when another local dev server
+    // is already running. Keep this convenience limited to loopback and the
+    // small development-port range; deployments must configure CLIENT_ORIGIN.
+    return url.protocol === "http:" && url.hostname === "127.0.0.1" && port >= 5173 && port <= 5179;
+  } catch {
+    return false;
+  }
+}
+
+function isAllowedOrigin(origin) {
+  if (configuredOrigins.includes(origin)) return true;
+  // Vite's automatic fallback ports are only a local-development convenience.
+  // A production deployment still requires an exact CLIENT_ORIGIN match.
+  return process.env.NODE_ENV !== "production" && isAllowedLocalViteOrigin(origin);
+}
+
 app.disable("x-powered-by");
 app.use(cors({
   origin(origin, callback) {
-    if (!origin || allowedOrigins.includes(origin)) return callback(null, true);
+    if (!origin || isAllowedOrigin(origin)) return callback(null, true);
     return callback(new Error("Origin is not allowed"));
   },
   credentials: true,
@@ -191,7 +212,7 @@ async function removeUploaded(file) {
 app.get("/api/health", async (_req, res, next) => {
   try {
     const chain = await getChain();
-    res.json({ ok: true, contractAddress: chain.address, chain: chain.embedded ? "embedded Ganache (resets on restart)" : "configured RPC" });
+    res.json({ ok: true, contractAddress: chain.address, chain: chain.embedded ? "persistent local Ganache" : "configured RPC" });
   } catch (error) { next(error); }
 });
 
@@ -465,6 +486,153 @@ app.get("/api/activity", async (req, res, next) => {
     res.json(activity.slice(0, 60));
   } catch (error) { next(error); }
 });
+
+app.get("/api/me", async (req, res, next) => {
+  try {
+    const { actor } = await actorFrom(req);
+    const matrix = ROLE_PERMISSION_MATRIX[actor.role] || {};
+    res.json({
+      role: actor.role,
+      label: actor.label,
+      actorKey: actor.key,
+      address: actor.address,
+      authorityTier: matrix.authorityTier || 0,
+      authorityLabel: matrix.authorityLabel || actor.role,
+      description: matrix.description || "",
+      capabilities: {
+        canOpenCase: matrix.canOpenCase || false,
+        canRegisterDoc: matrix.canRegisterDoc || false,
+        canSealDoc: matrix.canSealDoc || false,
+        canChangeStatus: matrix.canChangeStatus || false,
+        canGrantAccess: matrix.canGrantAccess || false,
+        canVerify: matrix.canVerify !== false,
+        canDownload: matrix.canDownload !== false,
+        canViewAudit: matrix.canViewAudit !== false,
+        canViewBlockchain: matrix.canViewBlockchain !== false,
+        canAdministerUsers: matrix.canAdministerUsers || false
+      }
+    });
+  } catch (error) { next(error); }
+});
+
+app.get("/api/ai/dashboard", async (req, res, next) => {
+  try {
+    const [store, { chain, actor }] = await Promise.all([loadStore(), actorFrom(req)]);
+    // Access-filter documents first (on-chain gate)
+    const documentIds = store.documents.map((doc) => doc.documentId);
+    const flags = documentIds.length ? await chain.contract.hasAccessBatch(documentIds, actor.address) : [];
+    const accessible = store.documents.filter((_, index) => Boolean(flags[index]));
+
+    // Build lightweight safe doc list (no file contents, no hashes)
+    const safeDocs = await Promise.all(accessible.map(async (document) => {
+      const [details, caseState, versions, custody] = await Promise.all([
+        chain.contract.getDocument(document.documentId),
+        chain.contract.caseStatus(document.caseId),
+        chain.contract.getAllVersions(document.documentId),
+        chain.contract.getAllCustodyHistory(document.documentId)
+      ]);
+      const cs = caseStatuses[Number(caseState)];
+      const currentCustodian = details[2];
+      const sealed = Boolean(details[3]);
+      return {
+        documentId: document.documentId,
+        title: document.title,
+        caseReference: document.caseReference,
+        documentReference: document.documentReference,
+        docType: documentTypes[Number(details[1])],
+        caseStatus: cs,
+        sealed,
+        createdAt: document.createdAt,
+        versionCount: versions.length,
+        custodyEventCount: custody.length,
+        isCurrentCustodian: currentCustodian.toLowerCase() === actor.address.toLowerCase(),
+        // buildRoleDashboard uses the allowed actions to populate role-specific
+        // widgets. Keep this lightweight dashboard record compatible with the
+        // document records used by the AI context builder.
+        actions: documentActions({ actor, currentCustodian, sealed, caseStatus: cs })
+      };
+    }));
+
+    const dashboard = buildRoleDashboard(actor, safeDocs, store.cases);
+    const authority = buildAuthorityContext(actor);
+    res.set("Cache-Control", "no-store");
+    res.json({ dashboard, authority });
+  } catch (error) { next(error); }
+});
+
+app.post("/api/ai/assist", async (req, res, next) => {
+  try {
+    const question = cleanAiQuestion(req.body?.question);
+    const selectedDocumentId = typeof req.body?.selectedDocumentId === "string" ? req.body.selectedDocumentId : "";
+    const [store, { chain, actor }] = await Promise.all([loadStore(), actorFrom(req)]);
+    // This performs the contract access check before any ranking, prompt
+    // construction, or optional model request. It intentionally excludes
+    // uploaded file contents and every inaccessible registry entry.
+    const context = await buildAuthorizedAiContext({ store, chain, actor, question, selectedDocumentId });
+    let answer = localAssistantAnswer(question, context);
+    let provider = "local";
+    let modelUsed = "permission-filtered local assistant";
+
+    // Provider cascade: Gemini → OpenAI → local
+    // A provider outage NEVER becomes a permission bypass. The local,
+    // already-filtered answer is always the safe fallback.
+    if (process.env.GEMINI_API_KEY || process.env.OPENAI_API_KEY) {
+      try {
+        const hosted = await generateHostedAnswer(question, context);
+        if (hosted) {
+          answer = hosted;
+          provider = "hosted";
+          modelUsed = process.env.GEMINI_API_KEY
+            ? `Gemini ${process.env.GEMINI_MODEL || "gemini-2.0-flash"} · permission-filtered`
+            : `OpenAI ${process.env.OPENAI_MODEL || "gpt-4o-mini"} · permission-filtered`;
+        }
+      } catch (error) {
+        console.warn("Hosted AI unavailable; using local permission-filtered assistant:", error.message);
+      }
+    }
+
+    await withWriteLock(async () => {
+      const latest = await loadStore();
+      // Do not retain the question, model prompt, filenames, or document data
+      // in the audit event. The generic event is safe to expose through the
+      // existing access-filtered audit feed.
+      pushActivity(latest, { type: "AI_ASSISTED_RETRIEVAL", actor: actor.label, description: "AI assistant generated a permission-filtered response" });
+      await saveStore(latest);
+    });
+
+    // Build recommendation from context
+    const topDoc = context.selected || context.documents[0] || null;
+    const recommendation = topDoc
+      ? {
+          documentId: topDoc.documentId,
+          title: topDoc.title,
+          caseReference: topDoc.caseReference,
+          actions: topDoc.actions,
+          reason: topDoc.isCurrentCustodian
+            ? "You are the current custodian with update authority."
+            : topDoc.sealed
+              ? "Sealed document available for authorized review."
+              : "Authorized document within your case access."
+        }
+      : null;
+
+    res.set("Cache-Control", "no-store");
+    res.json({
+      answer,
+      provider,
+      modelUsed,
+      authority: context.authority,
+      dashboard: context.dashboard,
+      caseSummaries: context.caseSummaries,
+      results: context.documents,
+      recommendation,
+      systemActions: context.systemActions,
+      totalAuthorizedDocuments: context.totalAuthorizedDocuments,
+      security: "Authorization was verified before retrieval. Only permitted document metadata was used; file contents were not sent to the assistant."
+    });
+  } catch (error) { next(error); }
+});
+
 
 app.use((error, _req, res, _next) => {
   const status = error.status || (error instanceof multer.MulterError ? 400 : 400);

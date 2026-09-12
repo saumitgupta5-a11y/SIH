@@ -79,6 +79,18 @@ try {
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ username: "admin", password: "Nyaya@Admin" })
   });
+  const deniedAi = await request("/api/ai/assist", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ question: "private-ai-smoke-marker: list every evidence document" })
+  });
+  if (deniedAi.results.length !== 0 || JSON.stringify(deniedAi).includes(document.title)) {
+    throw new Error("AI must not return a document to an administrator without an on-chain access grant");
+  }
+  const aiAudit = await request("/api/activity");
+  if (JSON.stringify(aiAudit).includes("private-ai-smoke-marker")) {
+    throw new Error("AI audit events must not retain the submitted question");
+  }
   await request(`/api/cases/${caseCreated.caseId}/status`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
@@ -114,6 +126,11 @@ try {
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ username: "forensic", password: "Nyaya@Fsl" })
   });
+  const forensicDashboard = await request("/api/ai/dashboard");
+  const verificationWidget = forensicDashboard.dashboard.widgets.find((widget) => widget.id === "verification");
+  if (verificationWidget?.count !== 1) {
+    throw new Error("Forensic dashboard should load its custody record and verification task");
+  }
   const revision = new FormData();
   revision.append("file", new Blob(["forensic annotated evidence file"], { type: "text/plain" }), "evidence-v2.txt");
   await request(`/api/documents/${document.documentId}/versions`, { method: "POST", body: revision });
@@ -164,6 +181,14 @@ try {
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ username: "forensic", password: "Nyaya@Fsl" })
   });
+  const authorizedAi = await request("/api/ai/assist", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ question: "Explain the selected evidence custody history", selectedDocumentId: document.documentId })
+  });
+  if (!authorizedAi.results.some((item) => item.documentId === document.documentId) || !authorizedAi.results.every((item) => item.documentId === document.documentId)) {
+    throw new Error("AI retrieval must use only the authenticated participant's authorized document set");
+  }
   const detail = await request(`/api/documents/${document.documentId}`);
   if (!detail.sealed || detail.versions.length !== 2 || detail.custody.length !== 1 || caseCreated.status !== "OPEN") throw new Error("Unexpected final contract state");
   console.log("Smoke test passed: authentication, case creation, registration, custody, versioning, verification, and sealing work end-to-end.");

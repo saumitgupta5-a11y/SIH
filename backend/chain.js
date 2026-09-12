@@ -11,6 +11,7 @@ const rootDir = process.cwd();
 const mnemonic = "test test test test test test test test test test test junk";
 const deploymentPath = path.join(rootDir, "data", "deployment.json");
 const artifactCachePath = path.join(rootDir, "data", "EvidenceRegistry.artifact.json");
+const embeddedDbPath = path.join(rootDir, "data", "ganache-db");
 
 const actorSetup = [
   { key: "administrator", label: "System Administrator", role: "ADMIN", index: 0 },
@@ -78,7 +79,10 @@ async function createProvider() {
   const eip1193 = ganache.provider({
     logging: { quiet: true },
     wallet: { mnemonic, totalAccounts: 10, defaultBalance: 1_000 },
-    chain: { chainId: 1337 }
+    chain: { chainId: 1337 },
+    // Preserve the local demo ledger when the API is restarted during
+    // development. RESET_CHAIN=true remains available for an intentional reset.
+    database: { dbPath: embeddedDbPath }
   });
   return { provider: new ethers.BrowserProvider(eip1193), embedded: true };
 }
@@ -121,7 +125,7 @@ export async function getChain() {
   const artifact = await compileContract();
   const { provider, embedded } = await createProvider();
   const signers = await Promise.all(actorSetup.map((actor) => provider.getSigner(actor.index)));
-  const address = await deployOrReuse(provider, artifact, process.env.RESET_CHAIN === "true" || embedded);
+  const address = await deployOrReuse(provider, artifact, process.env.RESET_CHAIN === "true");
   const contract = new ethers.Contract(address, artifact.abi, provider);
   await configureRoles(contract, signers);
   const actors = await Promise.all(actorSetup.map(async (actor) => ({
@@ -130,10 +134,7 @@ export async function getChain() {
     role: actor.role,
     address: await signers[actor.index].getAddress()
   })));
-  // Embedded Ganache is recreated on every API start. Its deterministic
-  // accounts can produce the same contract address, so retain a per-process
-  // identity to stop the local index from surviving a fresh chain.
-  runtime = { provider, contract, signers, actors, embedded, address, abi: artifact.abi, sessionId: embedded ? crypto.randomUUID() : address.toLowerCase() };
+  runtime = { provider, contract, signers, actors, embedded, address, abi: artifact.abi, sessionId: address.toLowerCase() };
   return runtime;
 }
 
